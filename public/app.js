@@ -218,6 +218,8 @@ async function sendMessage() {
 
   if (pendingFiles.length > 0) {
     isSending = true;
+    sendButton.disabled = true;
+    sendButton.innerHTML = '<span class="spinner"></span>';
     try {
       const uploads = pendingFiles.map(async (pf) => {
         const formData = new FormData();
@@ -231,9 +233,13 @@ async function sendMessage() {
     } catch {
       renderSystemMessage('Failed to upload files');
       isSending = false;
+      sendButton.disabled = false;
+      sendButton.textContent = 'Send';
       return;
     }
     isSending = false;
+    sendButton.disabled = false;
+    sendButton.textContent = 'Send';
     clearPendingFiles();
   }
 
