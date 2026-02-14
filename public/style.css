@@ -16,12 +16,18 @@
   box-sizing: border-box;
 }
 
+html, body {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
 body {
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
   background: var(--bg-primary);
   color: var(--text-primary);
   height: 100vh;
-  overflow: hidden;
+  position: fixed;
+  width: 100%;
 }
 
 .hidden {
@@ -424,7 +430,7 @@ body {
   border: none;
   background: var(--bg-primary);
   color: var(--text-primary);
-  font-size: 15px;
+  font-size: 16px;
   outline: none;
 }
 
