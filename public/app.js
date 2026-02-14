@@ -333,8 +333,14 @@ messageInput.addEventListener('paste', (e) => {
 });
 
 // Upload modal
+const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+
 uploadButton.addEventListener('click', () => {
-  uploadModal.classList.remove('hidden');
+  if (isTouchDevice) {
+    fileInput.click();
+  } else {
+    uploadModal.classList.remove('hidden');
+  }
 });
 
 uploadModalClose.addEventListener('click', () => {
@@ -359,20 +365,34 @@ fileInput.addEventListener('change', () => {
   fileInput.value = '';
 });
 
-dropZone.addEventListener('dragover', (e) => {
+// Window-level drag and drop
+let dragCounter = 0;
+
+document.addEventListener('dragenter', (e) => {
   e.preventDefault();
-  dropZone.classList.add('drag-over');
+  dragCounter++;
+  if (dragCounter === 1) {
+    uploadModal.classList.remove('hidden');
+  }
 });
 
-dropZone.addEventListener('dragleave', () => {
-  dropZone.classList.remove('drag-over');
+document.addEventListener('dragleave', (e) => {
+  e.preventDefault();
+  dragCounter--;
+  if (dragCounter === 0) {
+    uploadModal.classList.add('hidden');
+  }
 });
 
-dropZone.addEventListener('drop', (e) => {
+document.addEventListener('dragover', (e) => {
   e.preventDefault();
-  dropZone.classList.remove('drag-over');
+});
+
+document.addEventListener('drop', (e) => {
+  e.preventDefault();
+  dragCounter = 0;
+  uploadModal.classList.add('hidden');
   for (const file of e.dataTransfer.files) {
     stageFile(file);
   }
-  uploadModal.classList.add('hidden');
 });
