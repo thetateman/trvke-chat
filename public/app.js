@@ -141,12 +141,14 @@ function renderFileAttachment(url, container) {
     video.src = url;
     video.controls = true;
     video.preload = 'metadata';
+    video.addEventListener('loadedmetadata', scrollToBottom);
     container.appendChild(video);
   } else if (isImage) {
     const img = document.createElement('img');
     img.className = 'message-media';
     img.src = url;
     img.alt = 'Shared image';
+    img.addEventListener('load', scrollToBottom);
     img.addEventListener('click', () => window.open(url, '_blank'));
     container.appendChild(img);
   } else {
@@ -187,7 +189,7 @@ function renderMessage({ username: user, text, timestamp, files, image }) {
 
   const timeSpan = document.createElement('span');
   timeSpan.className = 'timestamp';
-  timeSpan.textContent = new Date(timestamp).toLocaleTimeString();
+  timeSpan.textContent = new Date(timestamp).toLocaleTimeString('en-US', {hour: '2-digit', minute:'2-digit'});
 
   div.appendChild(nameSpan);
   div.appendChild(contentDiv);
