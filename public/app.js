@@ -301,8 +301,10 @@ function renderPreviews() {
       thumb.appendChild(img);
     } else if (isVideo && pf.previewUrl) {
       const video = document.createElement('video');
-      video.src = pf.previewUrl;
+      video.src = pf.previewUrl + '#t=0.001';
       video.muted = true;
+      video.playsInline = true;
+      video.preload = 'metadata';
       thumb.appendChild(video);
     } else {
       const icon = document.createElement('div');
