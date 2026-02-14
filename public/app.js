@@ -250,6 +250,7 @@ async function sendMessage() {
 
   ws.send(JSON.stringify(msg));
   messageInput.value = '';
+  messageInput.focus();
 }
 
 sendButton.addEventListener('click', sendMessage);
@@ -258,6 +259,10 @@ messageInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') {
     sendMessage();
   }
+});
+
+messagesDiv.addEventListener('touchstart', () => {
+  messageInput.blur();
 });
 
 // File staging
