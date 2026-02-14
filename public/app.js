@@ -138,8 +138,9 @@ function renderFileAttachment(url, container) {
   if (isVideo) {
     const video = document.createElement('video');
     video.className = 'message-media';
-    video.src = url;
+    video.src = url + '#t=0.001';
     video.controls = true;
+    video.playsInline = true;
     video.preload = 'metadata';
     video.addEventListener('loadedmetadata', scrollToBottom);
     container.appendChild(video);
