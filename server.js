@@ -57,7 +57,9 @@ wss.on('connection', (ws, req) => {
   const url = new URL(req.url, 'http://localhost');
   ws.username = (url.searchParams.get('username') || 'Anonymous').trim();
 
-  ws.send(JSON.stringify({ type: 'history', messages: history }));
+  const since = Number(url.searchParams.get('since')) || 0;
+  const missed = since ? history.filter(m => m.timestamp > since) : history;
+  ws.send(JSON.stringify({ type: 'history', messages: missed }));
   broadcast({ type: 'system', text: `${ws.username} joined` });
 
   ws.on('message', (raw) => {

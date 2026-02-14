@@ -36,6 +36,7 @@ let username = '';
 let intentionalClose = false;
 let pendingFiles = [];
 let isSending = false;
+let lastTimestamp = 0;
 
 const savedUsername = localStorage.getItem('username');
 if (savedUsername) {
@@ -90,12 +91,13 @@ function changeUsername(newName) {
     ws.close();
   }
   messagesDiv.innerHTML = '';
+  lastTimestamp = 0;
   connectWebSocket(username);
 }
 
 function connectWebSocket(name) {
   const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  ws = new WebSocket(`${protocol}//${location.host}?username=${encodeURIComponent(name)}`);
+  ws = new WebSocket(`${protocol}//${location.host}?username=${encodeURIComponent(name)}&since=${lastTimestamp}`);
 
   ws.addEventListener('open', () => {
     statusIndicator.classList.add('connected');
@@ -109,10 +111,12 @@ function connectWebSocket(name) {
       case 'history':
         for (const msg of data.messages) {
           renderMessage(msg);
+          if (msg.timestamp > lastTimestamp) lastTimestamp = msg.timestamp;
         }
         break;
       case 'chat':
         renderMessage(data);
+        if (data.timestamp > lastTimestamp) lastTimestamp = data.timestamp;
         break;
       case 'system':
         renderSystemMessage(data.text);
