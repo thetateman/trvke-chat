@@ -91,6 +91,103 @@ body {
   background: var(--accent-hover);
 }
 
+/* Group Lobby */
+#group-lobby {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.7);
+  z-index: 100;
+}
+
+#lobby-content {
+  background: var(--bg-secondary);
+  padding: 32px;
+  border-radius: 8px;
+  width: 360px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+#lobby-content h2 {
+  text-align: center;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.lobby-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.lobby-section h3 {
+  font-size: 14px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.lobby-section input {
+  padding: 10px 12px;
+  border-radius: 4px;
+  border: none;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  font-size: 15px;
+  outline: none;
+}
+
+.lobby-section input:focus {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+.lobby-section button {
+  padding: 10px;
+  border: none;
+  border-radius: 4px;
+  background: var(--accent);
+  color: white;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.lobby-section button:hover {
+  background: var(--accent-hover);
+}
+
+.lobby-divider {
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+  padding: 4px 0;
+}
+
+.lobby-error {
+  color: #ed4245;
+  font-size: 13px;
+}
+
+/* Group Code Badge */
+#group-code {
+  font-size: 13px;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 2px 8px;
+  background: var(--bg-tertiary);
+  border-radius: 4px;
+  font-weight: 400;
+}
+
+#group-code:hover {
+  color: var(--text-primary);
+}
+
 /* Chat Container */
 #chat-container {
   display: flex;

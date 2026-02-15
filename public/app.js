@@ -1,7 +1,15 @@
 const usernameModal = document.getElementById('username-modal');
 const usernameForm = document.getElementById('username-form');
 const usernameInput = document.getElementById('username-input');
+const groupLobby = document.getElementById('group-lobby');
+const joinCodeInput = document.getElementById('join-code-input');
+const joinGroupButton = document.getElementById('join-group-button');
+const joinError = document.getElementById('join-error');
+const groupNameInput = document.getElementById('group-name-input');
+const createGroupButton = document.getElementById('create-group-button');
 const chatContainer = document.getElementById('chat-container');
+const roomName = document.getElementById('room-name');
+const groupCodeBadge = document.getElementById('group-code');
 const messagesDiv = document.getElementById('messages');
 const messageInput = document.getElementById('message-input');
 const sendButton = document.getElementById('send-button');
@@ -15,6 +23,8 @@ const fileInput = document.getElementById('file-input');
 const attachmentPreview = document.getElementById('attachment-preview');
 const settingsButton = document.getElementById('settings-button');
 const settingsDropdown = document.getElementById('settings-dropdown');
+const copyInviteButton = document.getElementById('copy-invite');
+const leaveGroupButton = document.getElementById('leave-group');
 const editProfileButton = document.getElementById('edit-profile');
 
 const USERNAME_COLORS = [
@@ -37,12 +47,15 @@ let intentionalClose = false;
 let pendingFiles = [];
 let isSending = false;
 let lastTimestamp = 0;
+let currentGroupCode = null;
+
+const urlParams = new URLSearchParams(window.location.search);
+const inviteCode = urlParams.get('group');
 
 const savedUsername = localStorage.getItem('username');
 if (savedUsername) {
   username = savedUsername;
   usernameModal.classList.add('hidden');
-  chatContainer.classList.remove('hidden');
   connectWebSocket(username);
 }
 
@@ -62,8 +75,32 @@ function joinWithUsername(name) {
   username = name;
   localStorage.setItem('username', username);
   usernameModal.classList.add('hidden');
-  chatContainer.classList.remove('hidden');
   connectWebSocket(username);
+}
+
+function showLobby() {
+  chatContainer.classList.add('hidden');
+  groupLobby.classList.remove('hidden');
+  joinError.classList.add('hidden');
+  joinCodeInput.value = inviteCode || '';
+  joinCodeInput.focus();
+}
+
+function enterChat(code, name, messages) {
+  currentGroupCode = code;
+  groupLobby.classList.add('hidden');
+  chatContainer.classList.remove('hidden');
+  roomName.textContent = name;
+  groupCodeBadge.textContent = code;
+  messagesDiv.innerHTML = '';
+  lastTimestamp = 0;
+  for (const msg of messages) {
+    renderMessage(msg);
+    if (msg.timestamp > lastTimestamp) lastTimestamp = msg.timestamp;
+  }
+  scrollToBottom();
+  messageInput.focus();
+  history.replaceState(null, '', `?group=${code}`);
 }
 
 // Settings dropdown
@@ -83,6 +120,57 @@ editProfileButton.addEventListener('click', () => {
   usernameInput.focus();
 });
 
+copyInviteButton.addEventListener('click', () => {
+  settingsDropdown.classList.add('hidden');
+  if (currentGroupCode) {
+    const link = `${window.location.origin}?group=${currentGroupCode}`;
+    navigator.clipboard.writeText(link);
+  }
+});
+
+leaveGroupButton.addEventListener('click', () => {
+  settingsDropdown.classList.add('hidden');
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'leave-group' }));
+  }
+  currentGroupCode = null;
+  messagesDiv.innerHTML = '';
+  lastTimestamp = 0;
+  showLobby();
+  history.replaceState(null, '', window.location.pathname);
+});
+
+groupCodeBadge.addEventListener('click', () => {
+  if (currentGroupCode) {
+    const link = `${window.location.origin}?group=${currentGroupCode}`;
+    navigator.clipboard.writeText(link);
+  }
+});
+
+// Lobby buttons
+joinGroupButton.addEventListener('click', () => {
+  const code = joinCodeInput.value.trim();
+  if (!code) return;
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'join-group', code, since: lastTimestamp }));
+  }
+});
+
+joinCodeInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') joinGroupButton.click();
+});
+
+createGroupButton.addEventListener('click', () => {
+  const name = groupNameInput.value.trim();
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'create-group', name }));
+  }
+});
+
+groupNameInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') createGroupButton.click();
+});
+
 function changeUsername(newName) {
   username = newName;
   localStorage.setItem('username', username);
@@ -97,39 +185,50 @@ function changeUsername(newName) {
 
 function connectWebSocket(name) {
   const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  ws = new WebSocket(`${protocol}//${location.host}?username=${encodeURIComponent(name)}&since=${lastTimestamp}`);
+  ws = new WebSocket(`${protocol}//${location.host}?username=${encodeURIComponent(name)}`);
 
   ws.addEventListener('open', () => {
     statusIndicator.classList.add('connected');
-    messageInput.focus();
+    // Auto-join group on reconnect or invite link
+    if (currentGroupCode) {
+      ws.send(JSON.stringify({ type: 'join-group', code: currentGroupCode, since: lastTimestamp }));
+    } else if (inviteCode) {
+      ws.send(JSON.stringify({ type: 'join-group', code: inviteCode, since: lastTimestamp }));
+    } else {
+      showLobby();
+    }
   });
 
   ws.addEventListener('message', (event) => {
     const data = JSON.parse(event.data);
 
     switch (data.type) {
-      case 'history':
-        for (const msg of data.messages) {
-          renderMessage(msg);
-          if (msg.timestamp > lastTimestamp) lastTimestamp = msg.timestamp;
-        }
+      case 'group-joined':
+        enterChat(data.code, data.name, data.messages);
+        break;
+      case 'error':
+        joinError.textContent = data.text;
+        joinError.classList.remove('hidden');
+        if (!currentGroupCode) showLobby();
         break;
       case 'chat':
         renderMessage(data);
         if (data.timestamp > lastTimestamp) lastTimestamp = data.timestamp;
+        scrollToBottom();
         break;
       case 'system':
         renderSystemMessage(data.text);
+        scrollToBottom();
         break;
     }
-
-    scrollToBottom();
   });
 
   ws.addEventListener('close', () => {
     statusIndicator.classList.remove('connected');
     if (!intentionalClose) {
-      renderSystemMessage('Connection lost. Reconnecting...');
+      if (currentGroupCode) {
+        renderSystemMessage('Connection lost. Reconnecting...');
+      }
       setTimeout(() => connectWebSocket(name), 3000);
     }
     intentionalClose = false;

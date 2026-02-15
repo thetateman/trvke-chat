@@ -15,13 +15,34 @@
     </form>
   </div>
 
+  <div id="group-lobby" class="hidden">
+    <div id="lobby-content">
+      <h2>Join or Create a Group</h2>
+      <div class="lobby-section">
+        <h3>Join a Group</h3>
+        <input type="text" id="join-code-input" placeholder="Enter invite code" maxlength="8" autocomplete="off">
+        <button id="join-group-button">Join</button>
+        <p id="join-error" class="lobby-error hidden"></p>
+      </div>
+      <div class="lobby-divider">or</div>
+      <div class="lobby-section">
+        <h3>Create a Group</h3>
+        <input type="text" id="group-name-input" placeholder="Group name (optional)" maxlength="32" autocomplete="off">
+        <button id="create-group-button">Create</button>
+      </div>
+    </div>
+  </div>
+
   <div id="chat-container" class="hidden">
     <header id="chat-header">
-      <span id="room-name">Global Chat</span>
+      <span id="room-name"></span>
+      <span id="group-code" title="Click to copy invite link"></span>
       <span id="status-indicator"></span>
       <div id="settings-wrapper">
         <button id="settings-button" title="Settings">&#9881;</button>
         <div id="settings-dropdown" class="hidden">
+          <button id="copy-invite">Copy Invite Link</button>
+          <button id="leave-group">Leave Group</button>
           <button id="edit-profile">Edit Profile</button>
         </div>
       </div>
