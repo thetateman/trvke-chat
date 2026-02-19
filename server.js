@@ -46,7 +46,7 @@ const MAX_HISTORY = 50;
 
 function createGroup(name) {
   const code = crypto.randomBytes(4).toString('hex');
-  groups.set(code, { name: name || code, history: [], clients: new Set() });
+  groups.set(code, { name: name || code, history: [], clients: new Set(), voiceClients: new Set() });
   return code;
 }
 
@@ -61,8 +61,34 @@ function broadcastToGroup(groupCode, data) {
   }
 }
 
+function sendToClient(targetWs, data) {
+  if (targetWs && targetWs.readyState === 1) {
+    targetWs.send(JSON.stringify(data));
+  }
+}
+
+function broadcastVoiceState(groupCode) {
+  const group = groups.get(groupCode);
+  if (!group) return;
+  const participants = [...group.voiceClients].map(c => ({
+    clientId: c.clientId,
+    username: c.username,
+  }));
+  broadcastToGroup(groupCode, { type: 'voice-state', participants });
+}
+
+function findClientInGroup(groupCode, clientId) {
+  const group = groups.get(groupCode);
+  if (!group) return null;
+  for (const c of group.clients) {
+    if (c.clientId === clientId) return c;
+  }
+  return null;
+}
+
 wss.on('connection', (ws, req) => {
   const url = new URL(req.url, 'http://localhost');
+  ws.clientId = crypto.randomUUID();
   ws.username = (url.searchParams.get('username') || 'Anonymous').trim();
   ws.groupCode = null;
 
@@ -81,6 +107,7 @@ wss.on('connection', (ws, req) => {
       ws.groupCode = code;
       group.clients.add(ws);
       ws.send(JSON.stringify({ type: 'group-joined', code, name: group.name, messages: group.history }));
+      ws.send(JSON.stringify({ type: 'your-client-id', clientId: ws.clientId }));
       broadcastToGroup(code, { type: 'system', text: `${ws.username} joined` });
       return;
     }
@@ -97,6 +124,7 @@ wss.on('connection', (ws, req) => {
       group.clients.add(ws);
       const missed = since ? group.history.filter(m => m.timestamp > since) : group.history;
       ws.send(JSON.stringify({ type: 'group-joined', code, name: group.name, messages: missed }));
+      ws.send(JSON.stringify({ type: 'your-client-id', clientId: ws.clientId }));
       broadcastToGroup(code, { type: 'system', text: `${ws.username} joined` });
       return;
     }
@@ -106,10 +134,43 @@ wss.on('connection', (ws, req) => {
         const group = groups.get(ws.groupCode);
         if (group) {
           group.clients.delete(ws);
+          group.voiceClients.delete(ws);
+          broadcastVoiceState(ws.groupCode);
           broadcastToGroup(ws.groupCode, { type: 'system', text: `${ws.username} left` });
         }
         ws.groupCode = null;
       }
+      return;
+    }
+
+    if (msg.type === 'voice-join') {
+      if (!ws.groupCode) return;
+      const group = groups.get(ws.groupCode);
+      if (!group) return;
+      group.voiceClients.add(ws);
+      const peers = [...group.voiceClients]
+        .filter(c => c !== ws)
+        .map(c => ({ clientId: c.clientId, username: c.username }));
+      sendToClient(ws, { type: 'voice-peers', peers });
+      broadcastVoiceState(ws.groupCode);
+      return;
+    }
+
+    if (msg.type === 'voice-leave') {
+      if (!ws.groupCode) return;
+      const group = groups.get(ws.groupCode);
+      if (group) {
+        group.voiceClients.delete(ws);
+        broadcastVoiceState(ws.groupCode);
+      }
+      return;
+    }
+
+    if (msg.type === 'rtc-offer' || msg.type === 'rtc-answer' || msg.type === 'rtc-ice') {
+      if (!ws.groupCode) return;
+      const target = findClientInGroup(ws.groupCode, msg.toClientId);
+      if (!target) return;
+      sendToClient(target, { ...msg, fromClientId: ws.clientId, fromUsername: ws.username });
       return;
     }
 
@@ -146,6 +207,8 @@ wss.on('connection', (ws, req) => {
       const group = groups.get(ws.groupCode);
       if (group) {
         group.clients.delete(ws);
+        group.voiceClients.delete(ws);
+        broadcastVoiceState(ws.groupCode);
         broadcastToGroup(ws.groupCode, { type: 'system', text: `${ws.username} left` });
       }
     }

@@ -49,6 +49,20 @@ let isSending = false;
 let lastTimestamp = 0;
 let currentGroupCode = null;
 
+// Voice call state
+let myClientId = null;
+let localStream = null;
+let peerConnections = new Map(); // clientId → RTCPeerConnection
+let isMuted = false;
+let isInCall = false;
+
+const ICE_CONFIG = {
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+  ],
+};
+
 const urlParams = new URLSearchParams(window.location.search);
 const inviteCode = urlParams.get('group');
 
@@ -130,6 +144,7 @@ copyInviteButton.addEventListener('click', () => {
 
 leaveGroupButton.addEventListener('click', () => {
   settingsDropdown.classList.add('hidden');
+  leaveVoiceCall();
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({ type: 'leave-group' }));
   }
@@ -174,6 +189,7 @@ groupNameInput.addEventListener('keydown', (e) => {
 function changeUsername(newName) {
   username = newName;
   localStorage.setItem('username', username);
+  leaveVoiceCall();
   if (ws) {
     intentionalClose = true;
     ws.close();
@@ -206,6 +222,9 @@ function connectWebSocket(name) {
       case 'group-joined':
         enterChat(data.code, data.name, data.messages);
         break;
+      case 'your-client-id':
+        myClientId = data.clientId;
+        break;
       case 'error':
         joinError.textContent = data.text;
         joinError.classList.remove('hidden');
@@ -219,6 +238,24 @@ function connectWebSocket(name) {
       case 'system':
         renderSystemMessage(data.text);
         scrollToBottom();
+        break;
+      case 'voice-state':
+        renderVoiceParticipants(data.participants);
+        break;
+      case 'voice-peers':
+        // We just joined; make offers to all existing call members
+        for (const peer of data.peers) {
+          createPeerConnection(peer.clientId, peer.username, true);
+        }
+        break;
+      case 'rtc-offer':
+        handleOffer(data);
+        break;
+      case 'rtc-answer':
+        handleAnswer(data);
+        break;
+      case 'rtc-ice':
+        handleIceCandidate(data);
         break;
     }
   });
@@ -311,6 +348,220 @@ function renderSystemMessage(text) {
 function scrollToBottom() {
   messagesDiv.scrollTop = messagesDiv.scrollHeight;
 }
+
+// --- Voice Call ---
+
+function renderVoiceParticipants(participants) {
+  const voiceChannel = document.getElementById('voice-channel');
+  const list = document.getElementById('voice-participants');
+  list.innerHTML = '';
+  if (participants.length === 0) {
+    voiceChannel.classList.remove('active');
+    return;
+  }
+  voiceChannel.classList.add('active');
+  for (const p of participants) {
+    const span = document.createElement('span');
+    span.className = 'voice-participant';
+    span.dataset.clientid = p.clientId;
+    span.textContent = p.username;
+    span.style.color = getUsernameColor(p.username);
+    list.appendChild(span);
+  }
+}
+
+function updateVoiceUI() {
+  const joinBtn = document.getElementById('voice-join-btn');
+  const muteBtn = document.getElementById('voice-mute-btn');
+  if (isInCall) {
+    joinBtn.textContent = 'Leave Call';
+    joinBtn.classList.add('in-call');
+    muteBtn.classList.remove('hidden');
+    muteBtn.textContent = isMuted ? 'Unmute' : 'Mute';
+    muteBtn.classList.toggle('muted', isMuted);
+  } else {
+    joinBtn.textContent = 'Join Call';
+    joinBtn.classList.remove('in-call');
+    muteBtn.classList.add('hidden');
+  }
+}
+
+function createPeerConnection(remoteClientId, _remoteUsername, isOfferer) {
+  if (peerConnections.has(remoteClientId)) return peerConnections.get(remoteClientId);
+
+  const pc = new RTCPeerConnection(ICE_CONFIG);
+  peerConnections.set(remoteClientId, pc);
+
+  if (localStream) {
+    for (const track of localStream.getTracks()) {
+      pc.addTrack(track, localStream);
+    }
+  }
+
+  pc.ontrack = (event) => {
+    let audio = document.getElementById(`audio-${remoteClientId}`);
+    if (!audio) {
+      audio = document.createElement('audio');
+      audio.id = `audio-${remoteClientId}`;
+      audio.autoplay = true;
+      document.body.appendChild(audio);
+    }
+    audio.srcObject = event.streams[0];
+  };
+
+  pc.onicecandidate = (event) => {
+    if (event.candidate && ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({
+        type: 'rtc-ice',
+        toClientId: remoteClientId,
+        candidate: event.candidate,
+      }));
+    }
+  };
+
+  pc.onconnectionstatechange = () => {
+    if (pc.connectionState === 'failed' || pc.connectionState === 'closed') {
+      closePeerConnection(remoteClientId);
+    }
+  };
+
+  if (isOfferer) {
+    pc.onnegotiationneeded = async () => {
+      try {
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({
+            type: 'rtc-offer',
+            toClientId: remoteClientId,
+            sdp: pc.localDescription,
+          }));
+        }
+      } catch (err) {
+        console.error('Offer creation failed:', err);
+      }
+    };
+  }
+
+  return pc;
+}
+
+async function handleOffer(data) {
+  const pc = createPeerConnection(data.fromClientId, data.fromUsername, false);
+  try {
+    await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({
+        type: 'rtc-answer',
+        toClientId: data.fromClientId,
+        sdp: pc.localDescription,
+      }));
+    }
+  } catch (err) {
+    console.error('Failed to handle offer:', err);
+  }
+}
+
+async function handleAnswer(data) {
+  const pc = peerConnections.get(data.fromClientId);
+  if (!pc) return;
+  try {
+    await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
+  } catch (err) {
+    console.error('Failed to handle answer:', err);
+  }
+}
+
+async function handleIceCandidate(data) {
+  const pc = peerConnections.get(data.fromClientId);
+  if (!pc) return;
+  try {
+    await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
+  } catch (err) {
+    console.error('Failed to add ICE candidate:', err);
+  }
+}
+
+function closePeerConnection(clientId) {
+  const pc = peerConnections.get(clientId);
+  if (pc) {
+    pc.close();
+    peerConnections.delete(clientId);
+  }
+  const audio = document.getElementById(`audio-${clientId}`);
+  if (audio) audio.remove();
+}
+
+async function joinVoiceCall() {
+  if (isInCall) return;
+  try {
+    localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+  } catch {
+    renderSystemMessage('Microphone access denied.');
+    return;
+  }
+  isInCall = true;
+  isMuted = false;
+  updateVoiceUI();
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'voice-join' }));
+  }
+  startVoiceActivityDetection(localStream, myClientId);
+}
+
+function leaveVoiceCall() {
+  if (!isInCall) return;
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'voice-leave' }));
+  }
+  isInCall = false;
+  isMuted = false;
+  for (const clientId of [...peerConnections.keys()]) {
+    closePeerConnection(clientId);
+  }
+  if (localStream) {
+    for (const track of localStream.getTracks()) track.stop();
+    localStream = null;
+  }
+  updateVoiceUI();
+}
+
+function toggleMute() {
+  if (!localStream) return;
+  isMuted = !isMuted;
+  for (const track of localStream.getAudioTracks()) {
+    track.enabled = !isMuted;
+  }
+  updateVoiceUI();
+}
+
+function startVoiceActivityDetection(stream, clientId) {
+  const audioCtx = new AudioContext();
+  const source = audioCtx.createMediaStreamSource(stream);
+  const analyser = audioCtx.createAnalyser();
+  analyser.fftSize = 256;
+  source.connect(analyser);
+  const data = new Uint8Array(analyser.frequencyBinCount);
+
+  function tick() {
+    if (!isInCall) { audioCtx.close(); return; }
+    analyser.getByteFrequencyData(data);
+    const avg = data.reduce((a, b) => a + b, 0) / data.length;
+    const speaking = avg > 15;
+    const el = document.querySelector(`[data-clientid="${clientId}"]`);
+    if (el) el.classList.toggle('speaking', speaking);
+    requestAnimationFrame(tick);
+  }
+  tick();
+}
+
+document.getElementById('voice-join-btn').addEventListener('click', () => {
+  if (isInCall) leaveVoiceCall(); else joinVoiceCall();
+});
+
+document.getElementById('voice-mute-btn').addEventListener('click', toggleMute);
 
 async function sendMessage() {
   if (isSending) return;
